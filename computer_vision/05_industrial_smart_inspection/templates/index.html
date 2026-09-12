@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>YOLOv8 工业视觉检测系统</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <div>
+          <p class="eyebrow">人工智能视觉综合实践</p>
+          <h1>YOLOv8 工业视觉检测系统</h1>
+          <p class="hero-copy">完成包装 OK/NG 分类、电子元器件目标检测、餐具四件套实例分割，并支持 Web 上传图片实时展示检测结果。</p>
+        </div>
+        <div class="hero-status">
+          <span class="dot {{ 'on' if cuda_ready else 'off' }}"></span>
+          <div>
+            <strong>{{ 'GPU 推理已启用' if cuda_ready else 'CPU 推理模式' }}</strong>
+            <small>模型权重、数据转换、训练指标已完成检查</small>
+          </div>
+        </div>
+      </section>
+
+      <section class="task-strip">
+        {% for card in task_cards %}
+          <article class="task-card {{ 'active' if active_task == card.key else '' }}">
+            <div class="task-head">
+              <div>
+                <h2>{{ card.title }}</h2>
+                <p>{{ card.subtitle }}</p>
+              </div>
+              <span class="{{ 'badge ready' if card.ready else 'badge missing' }}">{{ '已训练' if card.ready else '缺少模型' }}</span>
+            </div>
+            <div class="task-meta">
+              <span>训练 {{ card.train_count }} 张</span>
+              <span>验证 {{ card.val_count }} 张</span>
+              <span>{{ card.epochs }} epoch</span>
+            </div>
+            <div class="metric-row">
+              {% for metric in card.metrics %}
+                <div>
+                  <strong>{{ metric.value }}</strong>
+                  <small>{{ metric.label }}</small>
+                </div>
+              {% endfor %}
+            </div>
+          </article>
+        {% endfor %}
+      </section>
+
+      <section class="workspace">
+        <aside class="panel controls">
+          <form method="post" enctype="multipart/form-data">
+            <label class="field-label">检测任务</label>
+            <div class="segmented">
+              {% for key, task in tasks.items() %}
+                <label>
+                  <input type="radio" name="task" value="{{ key }}" {% if active_task == key %}checked{% endif %}>
+                  <span>{{ task.title }}</span>
+                </label>
+              {% endfor %}
+            </div>
+
+            <label class="field-label" for="image">上传图片</label>
+            <label class="upload-box" for="image">
+              <strong>选择待检测图片</strong>
+              <span>支持 bmp、jpg、jpeg、png</span>
+              <input id="image" name="image" type="file" accept=".bmp,.jpg,.jpeg,.png">
+            </label>
+            <button type="submit">开始检测</button>
+          </form>
+
+          <div class="note">
+            <strong>包装分类标签来源</strong>
+            {% if config.packaging %}
+              {% for flag, label in config.packaging.flag_label_map.items() %}
+                <span>{{ flag }} → {{ label }}</span>
+              {% endfor %}
+            {% endif %}
+          </div>
+        </aside>
+
+        <section class="result-area">
+          <div class="image-grid">
+            <div class="panel image-panel">
+              <div class="panel-title">
+                <h2>待检测图</h2>
+                <span>Input</span>
+              </div>
+              {% if uploaded %}
+                <img src="/{{ uploaded }}" alt="uploaded image">
+              {% else %}
+                <div class="placeholder">上传图片后显示原图</div>
+              {% endif %}
+            </div>
+
+            <div class="panel image-panel">
+              <div class="panel-title">
+                <h2>检测结果</h2>
+                <span>Output</span>
+              </div>
+              {% if result_image %}
+                <img src="/{{ result_image }}" alt="result image">
+              {% else %}
+                <div class="placeholder">模型预测结果将在这里展示</div>
+              {% endif %}
+            </div>
+          </div>
+
+          <div class="panel table-panel">
+            <div class="panel-title">
+              <h2>结果明细</h2>
+              <span>Confidence</span>
+            </div>
+            {% if error %}
+              <div class="error">{{ error }}</div>
+            {% endif %}
+            {% if rows %}
+              <table>
+                <thead>
+                  <tr>
+                    <th>类别</th>
+                    <th>置信度</th>
+                    <th>位置</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for row in rows %}
+                    <tr>
+                      <td>{{ row.name }}</td>
+                      <td>
+                        <div class="confidence">
+                          <span style="width: {{ (row.score * 100)|round(0) }}%"></span>
+                        </div>
+                        {{ "%.2f"|format(row.score) }}
+                      </td>
+                      <td>{{ row.box if row.box else "-" }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            {% elif not error %}
+              <div class="placeholder compact">暂无检测结果</div>
+            {% endif %}
+          </div>
+        </section>
+      </section>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,20 @@
+{
+  "seed": 42,
+  "packaging": {
+    "class_names": ["OK", "NG"],
+    "flag_label_map": {
+      "undamaged": "OK",
+      "damaged": "NG"
+    },
+    "label_csv": "configs/packaging_labels.csv",
+    "val_per_class": 5
+  },
+  "components": {
+    "class_names": ["合格稳压管", "缺脚稳压管", "歪脚稳压管", "陶瓷电阻", "聚酯电容"],
+    "val_images": 15
+  },
+  "cutlery": {
+    "class_names": ["kuaizi", "shaozi", "yaqian", "zhijin"],
+    "val_images": 20
+  }
+}

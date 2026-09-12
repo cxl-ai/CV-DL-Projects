@@ -1,0 +1,250 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>车道线检测作业</title>
+<style>body{font-family:Arial,sans-serif;max-width:1000px;margin:40px auto;padding:0 20px}
+h1,h2,h3{color:#333}.code-cell{background:#f8f8f8;border-left:4px solid #4CAF50;padding:12px 16px;margin:10px 0;border-radius:4px}
+pre{margin:0;white-space:pre-wrap;font-size:13px}.markdown-cell{margin:16px 0}</style></head><body><div class="markdown-cell"><h1>车道线检测作业</h1><br>
+对视频 <code>roadzuoye.mp4</code> 进行车道线检测并输出标注视频。</div>
+<div class="markdown-cell"><h2>导入库</h2></div>
+<div class="code-cell"><pre>import numpy as np
+import cv2
+import matplotlib.pyplot as plt
+%matplotlib inline</pre></div>
+<div class="markdown-cell"><h2>步骤一：读取视频基本信息</h2></div>
+<div class="code-cell"><pre>input_path = 'roadzuoye.mp4'
+cap = cv2.VideoCapture(input_path)
+fps    = cap.get(cv2.CAP_PROP_FPS)
+width  = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+total  = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+print(f'分辨率: {width}x{height}, FPS: {fps:.2f}, 总帧数: {total}')
+
+# 读取一帧展示
+ret, sample_frame = cap.read()
+cap.release()
+plt.figure(figsize=(10, 5))
+plt.imshow(cv2.cvtColor(sample_frame, cv2.COLOR_BGR2RGB))
+plt.title('原始帧示例')
+plt.axis('off')
+plt.show()</pre></div>
+<div class="markdown-cell"><h2>步骤二：滤除白/黄色以外的像素</h2></div>
+<div class="code-cell"><pre>def select_white_yellow(color_img):
+    """保留白色和黄色车道线像素"""
+    hsv = cv2.cvtColor(color_img, cv2.COLOR_BGR2HSV)
+    # 放宽白色阈值，避免因车道线磨损导致漏检
+    lower_white = np.uint8([0,   0, 180])
+    upper_white = np.uint8([180, 80, 255])
+    mask_white  = cv2.inRange(hsv, lower_white, upper_white)
+    # 黄色
+    lower_yellow = np.uint8([26, 43, 46])
+    upper_yellow = np.uint8([34, 255, 255])
+    mask_yellow  = cv2.inRange(hsv, lower_yellow, upper_yellow)
+    mask_line = cv2.bitwise_or(mask_white, mask_yellow)
+    return cv2.bitwise_and(color_img, color_img, mask=mask_line)
+
+white_yellow = select_white_yellow(sample_frame)
+plt.figure(figsize=(10, 5))
+plt.imshow(cv2.cvtColor(white_yellow, cv2.COLOR_BGR2RGB))
+plt.title('步骤二：保留白/黄像素')
+plt.axis('off')
+plt.show()</pre></div>
+<div class="markdown-cell"><h2>步骤三/四：灰度化 + 高斯平滑</h2></div>
+<div class="code-cell"><pre>gray_image = cv2.cvtColor(white_yellow, cv2.COLOR_BGR2GRAY)
+blurred    = cv2.GaussianBlur(gray_image, (5, 5), 0)
+
+fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+axes[0].imshow(gray_image, cmap='gray'); axes[0].set_title('步骤三：灰度图'); axes[0].axis('off')
+axes[1].imshow(blurred,    cmap='gray'); axes[1].set_title('步骤四：高斯平滑'); axes[1].axis('off')
+plt.show()</pre></div>
+<div class="markdown-cell"><h2>步骤五：Canny 边缘检测</h2></div>
+<div class="code-cell"><pre>edges_img = cv2.Canny(blurred, 50, 150)
+plt.figure(figsize=(10, 5))
+plt.imshow(edges_img, cmap='gray')
+plt.title('步骤五：Canny 边缘图')
+plt.axis('off')
+plt.show()</pre></div>
+<div class="markdown-cell"><h2>步骤六：构建左右 ROI 感兴趣区域</h2></div>
+<div class="code-cell"><pre>def apply_roi_mask(gray_img, vertices):
+    """对灰度图应用多边形 ROI 掩码"""
+    mask = np.zeros_like(gray_img)
+    pts  = np.array(vertices, dtype=np.int32)
+    cv2.fillPoly(mask, [pts], 255)
+    return cv2.bitwise_and(gray_img, mask)
+
+h, w = sample_frame.shape[:2]
+
+ROIL_vertices = [
+    (w * 0.38, h * 0.66),
+    (w * 0.43, h * 0.67),
+    (w * 0.22, h * 0.99),
+    (w * 0.11, h * 0.97),
+    (w * 0.38, h * 0.66),
+]  # 以顺时针方向提供构成 roi 的一系列点
+
+ROIR_vertices = [
+    (w * 0.46, h * 0.66),
+    (w * 0.53, h * 0.66),
+    (w * 0.83, h * 0.88),
+    (w * 0.92, h * 0.98),
+    (w * 0.74, h * 0.99),
+    (w * 0.62, h * 0.87),
+    (w * 0.52, h * 0.77),
+    (w * 0.45, h * 0.69),
+    (w * 0.46, h * 0.66),
+]  # 以顺时针方向提供构成 roi 的一系列点
+
+edge_left  = apply_roi_mask(edges_img, ROIL_vertices)
+edge_right = apply_roi_mask(edges_img, ROIR_vertices)
+edge_roi   = cv2.bitwise_or(edge_left, edge_right)
+
+# 可视化 ROI 边框
+roi_vis = cv2.cvtColor(edges_img, cv2.COLOR_GRAY2BGR)
+cv2.polylines(roi_vis, [np.array(ROIL_vertices, np.int32)], True, (0,255,0), 2)
+cv2.polylines(roi_vis, [np.array(ROIR_vertices, np.int32)], True, (0,0,255), 2)
+
+fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+axes[0].imshow(roi_vis); axes[0].set_title('步骤六：左右 ROI 边框（绿=左，红=右）'); axes[0].axis('off')
+axes[1].imshow(edge_roi, cmap='gray'); axes[1].set_title('ROI 内的边缘图'); axes[1].axis('off')
+plt.show()</pre></div>
+<div class="markdown-cell"><h2>步骤七/八/九：霍夫变换 + 剔除离群线段 + 最小二乘拟合</h2></div>
+<div class="code-cell"><pre>def calculate_slope(line):
+    x1, y1, x2, y2 = line[0]
+    if x2 - x1 == 0:
+        return 999
+    return (y2 - y1) / (x2 - x1)
+
+def reject_abnormal_lines(lines, threshold=0.1):
+    """剔除斜率偏差过大的离群线段"""
+    if not lines:
+        return lines
+    slopes    = [calculate_slope(l) for l in lines]
+    mean_slope = np.mean(slopes)
+    return [l for l, s in zip(lines, slopes)
+            if abs(s - mean_slope) &lt; abs(mean_slope) * 0.5 + threshold]
+
+def least_squares_fit(lines):
+    """最小二乘拟合，返回 [k, b]（x = k*y + b）"""
+    if not lines:
+        return None
+    xs, ys = [], []
+    for line in lines:
+        x1, y1, x2, y2 = line[0]
+        xs += [x1, x2]
+        ys += [y1, y2]
+    return np.polyfit(ys, xs, 1)
+
+def get_lines(edge_img):
+    """步骤八：霍夫变换检测线段，返回左右拟合参数"""
+    lines = cv2.HoughLinesP(edge_img, 1, np.pi / 180, 20,
+                            minLineLength=5, maxLineGap=10)
+    if lines is None:
+        return None, None
+    left_lines  = [l for l in lines if calculate_slope(l) &lt; 0]
+    right_lines = [l for l in lines if calculate_slope(l) &gt; 0]
+    left_lines  = reject_abnormal_lines(left_lines)
+    right_lines = reject_abnormal_lines(right_lines)
+    return least_squares_fit(left_lines), least_squares_fit(right_lines)
+
+left_fit, right_fit = get_lines(edge_roi)
+print('左车道线拟合参数 (k, b):', left_fit)
+print('右车道线拟合参数 (k, b):', right_fit)</pre></div>
+<div class="markdown-cell"><h2>步骤十：延伸并绘制车道线</h2></div>
+<div class="code-cell"><pre>def draw_lane_lines(img, left_fit, right_fit, imgheight, color=(255,0,0), thickness=4):
+    """步骤十：延伸并绘制左右车道线（y=k*x+b，故 x=(y-b)/k）
+    底部 y=imgheight，顶部 y=0.65*imgheight，避免两线在画面内交叉
+    """
+    by = imgheight
+    ty = int(0.65 * imgheight)
+    # 右车道线（pos=True，斜率为正）
+    if right_fit is not None:
+        rightby = by
+        rightbx = int((rightby - right_fit[1]) / right_fit[0])
+        rightty = ty
+        righttx = int((rightty - right_fit[1]) / right_fit[0])
+        cv2.line(img, (rightbx, rightby), (righttx, rightty), color, thickness)
+    # 左车道线（pos=False，斜率为负）
+    if left_fit is not None:
+        leftby = by
+        leftbx = int((leftby - left_fit[1]) / left_fit[0])
+        leftty = ty
+        lefttx = int((leftty - left_fit[1]) / left_fit[0])
+        cv2.line(img, (leftbx, leftby), (lefttx, leftty), color, thickness)
+    return img
+
+result_frame = draw_lane_lines(sample_frame.copy(), left_fit, right_fit, h)
+plt.figure(figsize=(10, 5))
+plt.imshow(cv2.cvtColor(result_frame, cv2.COLOR_BGR2RGB))
+plt.title('步骤十：绘制车道线效果')
+plt.axis('off')
+plt.show()</pre></div>
+<div class="markdown-cell"><h2>整合：完整帧处理函数</h2></div>
+<div class="code-cell"><pre>def process_frame(frame):
+    color_img = frame.copy()
+    height, width = color_img.shape[:2]
+
+    # 步骤二：白/黄滤波
+    white_yellow_image = select_white_yellow(color_img)
+    # 若右侧车道线消失，可改用：white_yellow_image = color_img
+
+    # 步骤三：灰度化
+    gray_image = cv2.cvtColor(white_yellow_image, cv2.COLOR_BGR2GRAY)
+
+    # 步骤四：高斯平滑
+    blurred = cv2.GaussianBlur(gray_image, (5, 5), 0)
+
+    # 步骤五：Canny
+    edges_img = cv2.Canny(blurred, 50, 150)
+
+    # 步骤六：ROI
+    ROIL_vertices = [
+        (width * 0.38, height * 0.66), (width * 0.43, height * 0.67),
+        (width * 0.22, height * 0.99), (width * 0.11, height * 0.97),
+        (width * 0.38, height * 0.66),
+    ]
+    ROIR_vertices = [
+        (width * 0.46, height * 0.66), (width * 0.53, height * 0.66),
+        (width * 0.83, height * 0.88), (width * 0.92, height * 0.98),
+        (width * 0.74, height * 0.99), (width * 0.62, height * 0.87),
+        (width * 0.52, height * 0.77), (width * 0.45, height * 0.69),
+        (width * 0.46, height * 0.66),
+    ]
+    edge_roi = cv2.bitwise_or(
+        apply_roi_mask(edges_img, ROIL_vertices),
+        apply_roi_mask(edges_img, ROIR_vertices)
+    )
+
+    # 步骤七-九：霍夫 + 拟合
+    left_fit, right_fit = get_lines(edge_roi)
+
+    # 步骤十：绘制
+    return draw_lane_lines(color_img, left_fit, right_fit, height)
+
+print('process_frame 函数定义完成')</pre></div>
+<div class="markdown-cell"><h2>步骤十一：处理视频并保存</h2></div>
+<div class="code-cell"><pre>output_path = 'roadzuoye_line.mp4'
+
+capture    = cv2.VideoCapture(input_path)
+fps        = capture.get(cv2.CAP_PROP_FPS)
+width      = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
+height     = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+total      = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+
+fourcc     = cv2.VideoWriter_fourcc(*'mp4v')
+videoWrite = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+
+frame_idx = 0
+while True:
+    ret, frame = capture.read()
+    if not ret:
+        break
+    result = process_frame(frame)
+    videoWrite.write(result)
+    frame_idx += 1
+    if frame_idx % 200 == 0:
+        print(f'已处理 {frame_idx}/{total} 帧...')
+
+# 步骤十一：释放资源（videoWrite.release() 不能漏！）
+capture.release()
+videoWrite.release()
+cv2.destroyAllWindows()
+
+print(f'\n完成！输出视频已保存至 {output_path}')</pre></div>
+</body></html>
